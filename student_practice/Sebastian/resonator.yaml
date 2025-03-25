@@ -26,6 +26,13 @@ wifi:
 
 captive_portal:
 
+# Add UART configuration for serial communication
+uart:
+  tx_pin: GPIO17
+  rx_pin: GPIO18 
+  baud_rate: 9600
+  id: uart_bus
+
 web_server:
   port: 80
 
@@ -96,31 +103,6 @@ mqtt:
             if (!success) {
               ESP_LOGE("mqtt", "Failed to parse JSON");
             }
-
-    - topic: sebschlo/feeds/conversation-starters
-      then:
-        - lambda: |-
-            ESP_LOGD("mqtt", "Received MQTT message: %s", x.c_str());
-            bool success = parse_json(x.c_str(), [](JsonObject json) -> bool {
-              if (!json.containsKey("beacon_id") || json["beacon_id"] != "2:3") {
-                ESP_LOGE("mqtt", "Beacon ID '2:3' not found in JSON");
-                return false;
-              }
-              if (!json.containsKey("prompt")) {
-                ESP_LOGE("mqtt", "Key 'prompt' not found in JSON");
-                return false;
-              }
-
-              // Extract and publish the prompt
-              std::string prompt = json["prompt"].as<std::string>();
-              id(beacon_data).publish_state(prompt);
-
-              return true;
-            });
-
-            if (!success) {
-              ESP_LOGE("mqtt", "Failed to parse JSON");
-            }
   birth_message:
     topic: sebschlo/feeds/beacon-users
     payload: "Connected successfully"
@@ -131,7 +113,7 @@ mqtt:
 # Add button to perform HTTP GET request
 button:
   - platform: template
-    name: "Fetch Beacon Data"
+    name: "Create Conversation Starter!"
     on_press:
       then:
         - http_request.get:
@@ -141,33 +123,76 @@ button:
               then:
                 - lambda: |-
                     ESP_LOGD("http_request", "Response body: %s", body.c_str());
+                    
+                    // First check if the body is empty
+                    if (body.empty()) {
+                      ESP_LOGE("http_request", "Empty response body");
+                      id(beacon_data).publish_state("Error: Empty response");
+                      return;
+                    }
+
                     bool success = parse_json(body, [](JsonObject json) {
-                      if (json.containsKey("prompt") && json.containsKey("users")) {
-                        std::string prompt = json["prompt"].as<std::string>();
-                        std::string users = "Users: ";
-                        for (JsonVariant user : json["users"].as<JsonArray>()) {
-                          // Display user ID directly
-                          users += user.as<std::string>() + ", ";
-                        }
-                        if (!users.empty()) {
-                          users.pop_back(); // Remove trailing comma
-                          users.pop_back(); // Remove trailing space
-                        }
-                        id(beacon_data).publish_state(prompt + "\n" + users);
-                      } else {
-                        ESP_LOGE("http_request", "Invalid JSON response");
+                      ESP_LOGD("http_request", "Parsing JSON response");
+                      
+                      if (!json.containsKey("prompt")) {
+                        ESP_LOGE("http_request", "Missing 'prompt' field in JSON");
+                        return false;
                       }
+                      if (!json.containsKey("users")) {
+                        ESP_LOGE("http_request", "Missing 'users' field in JSON");
+                        return false;
+                      }
+
+                      std::string prompt = json["prompt"].as<std::string>();
+                      std::string users = "Users: ";
+                      
+                      JsonVariant usersArray = json["users"];
+                      if (!usersArray.is<JsonArray>()) {
+                        ESP_LOGE("http_request", "'users' is not an array");
+                        return false;
+                      }
+
+                      for (JsonVariant user : usersArray.as<JsonArray>()) {
+                        users += user.as<std::string>() + ", ";
+                      }
+                      
+                      if (!users.empty()) {
+                        users.pop_back(); // Remove trailing comma
+                        users.pop_back(); // Remove trailing space
+                      }
+                      
+                      std::string output = prompt + "\n" + users;
+                      id(beacon_data).publish_state(output);
+                      
+                      // Send to serial with clear formatting
+                      id(uart_bus).write_str("=== Beacon Data ===\n");
+                      id(uart_bus).write_str("Prompt: ");
+                      id(uart_bus).write_str(prompt.c_str());
+                      id(uart_bus).write_str("\n");
+                      id(uart_bus).write_str(users.c_str());
+                      id(uart_bus).write_str("\n==================\n");
+                      
                       return true;
                     });
 
                     if (!success) {
                       ESP_LOGE("http_request", "Failed to parse JSON");
+                      id(beacon_data).publish_state("Error: Invalid JSON response");
                     }
+
+  - platform: template
+    name: "Test Print"
+    on_press:
+      then:
+        - lambda: |-
+            id(uart_bus).write_str("=== Test Print ===\n");
+            id(uart_bus).write_str("Hello from ESP32!\n");
+            id(uart_bus).write_str("==================\n");
 
 # Add text sensor to display HTTP response
 text_sensor:
   - platform: template
-    name: "Beacon Data"
+    name: "Conversation Prompt"
     id: beacon_data
   - platform: template
     name: "Latest Signal Strength Received from MQTT"
