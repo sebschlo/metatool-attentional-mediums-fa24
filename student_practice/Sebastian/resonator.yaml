@@ -13,6 +13,7 @@ esp32:
 # Enable logging
 logger:
   level: VERBOSE
+  hardware_uart: UART0  # Explicitly set logger to use UART0
 
 wifi:
   ssid: !secret wifi_ssid
@@ -48,6 +49,11 @@ interval:
   - interval: 28min
     then:
       - http_request.get: https://mqtt-bridge-a57edcfdae3b.herokuapp.com/
+  - interval: 1min
+    then:
+      - lambda: |-
+          id(beacon_data).publish_state("");
+          id(latest_mqtt_value).publish_state("");
 
 # BLE Beacon Config
 esp32_ble_beacon:
@@ -124,7 +130,6 @@ button:
                 - lambda: |-
                     ESP_LOGD("http_request", "Response body: %s", body.c_str());
                     
-                    // First check if the body is empty
                     if (body.empty()) {
                       ESP_LOGE("http_request", "Empty response body");
                       id(beacon_data).publish_state("Error: Empty response");
@@ -138,39 +143,15 @@ button:
                         ESP_LOGE("http_request", "Missing 'prompt' field in JSON");
                         return false;
                       }
-                      if (!json.containsKey("users")) {
-                        ESP_LOGE("http_request", "Missing 'users' field in JSON");
-                        return false;
-                      }
 
                       std::string prompt = json["prompt"].as<std::string>();
-                      std::string users = "Users: ";
+                      ESP_LOGD("http_request", "Prompt: %s", prompt.c_str());
+                      id(beacon_data).publish_state(prompt);
                       
-                      JsonVariant usersArray = json["users"];
-                      if (!usersArray.is<JsonArray>()) {
-                        ESP_LOGE("http_request", "'users' is not an array");
-                        return false;
-                      }
-
-                      for (JsonVariant user : usersArray.as<JsonArray>()) {
-                        users += user.as<std::string>() + ", ";
-                      }
-                      
-                      if (!users.empty()) {
-                        users.pop_back(); // Remove trailing comma
-                        users.pop_back(); // Remove trailing space
-                      }
-                      
-                      std::string output = prompt + "\n" + users;
-                      id(beacon_data).publish_state(output);
-                      
-                      // Send to serial with clear formatting
-                      id(uart_bus).write_str("=== Beacon Data ===\n");
-                      id(uart_bus).write_str("Prompt: ");
+                      // Only send to printer if we have a valid prompt
+                      id(uart_bus).write_str("\n\n");
                       id(uart_bus).write_str(prompt.c_str());
-                      id(uart_bus).write_str("\n");
-                      id(uart_bus).write_str(users.c_str());
-                      id(uart_bus).write_str("\n==================\n");
+                      id(uart_bus).write_str("\n\n\n\n\n\n");
                       
                       return true;
                     });
