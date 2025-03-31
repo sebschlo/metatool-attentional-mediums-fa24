@@ -13,7 +13,7 @@ esp32:
 # Enable logging
 logger:
   level: VERBOSE
-  hardware_uart: UART0  # Explicitly set logger to use UART0
+  hardware_uart: UART0  # Explicitly set to prevent logs going to printer
 
 wifi:
   ssid: !secret wifi_ssid
@@ -29,8 +29,8 @@ captive_portal:
 
 # Add UART configuration for serial communication
 uart:
-  tx_pin: GPIO17
-  rx_pin: GPIO18 
+  tx_pin: GPIO19
+  rx_pin: GPIO20 
   baud_rate: 9600
   id: uart_bus
 
@@ -62,7 +62,9 @@ esp32_ble_beacon:
   major: 2
   minor: 3
   measured_power: -59
-  # tx_power: -12
+  min_interval: 100ms
+  max_interval: 100ms
+  tx_power: 3
 
 # MQTT Configuration
 mqtt:
@@ -116,10 +118,22 @@ mqtt:
     topic: sebschlo/feeds/beacon-users
     payload: "Disconnected"
 
+# Add binary sensor for physical button
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: GPIO21
+      mode: INPUT_PULLUP
+    name: "Physical Print Button"
+    on_press:
+      then:
+        - button.press: conversation_starter_button
+
 # Add button to perform HTTP GET request
 button:
   - platform: template
     name: "Create Conversation Starter!"
+    id: conversation_starter_button
     on_press:
       then:
         - http_request.get:
@@ -166,8 +180,8 @@ button:
     on_press:
       then:
         - lambda: |-
-            id(uart_bus).write_str("=== Test Print ===\n");
-            id(uart_bus).write_str("Hello from ESP32!\n");
+            id(uart_bus).write_str("=== ICEBREAKER ===\n");
+            id(uart_bus).write_str("Never struggle meeting strangers again!\n");
             id(uart_bus).write_str("==================\n");
 
 # Add text sensor to display HTTP response
@@ -176,5 +190,5 @@ text_sensor:
     name: "Conversation Prompt"
     id: beacon_data
   - platform: template
-    name: "Latest Signal Strength Received from MQTT"
+    name: "Users Present"
     id: latest_mqtt_value
