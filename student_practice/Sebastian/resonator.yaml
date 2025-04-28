@@ -14,6 +14,8 @@ esp32:
 logger:
   level: VERBOSE
   hardware_uart: UART0  # Explicitly set to prevent logs going to printer
+  logs:
+    ledc.output: ERROR  # Reduce LEDC output logs
 
 wifi:
   ssid: !secret wifi_ssid
@@ -118,18 +120,43 @@ mqtt:
     topic: sebschlo/feeds/beacon-users
     payload: "Disconnected"
 
-# Add binary sensor for physical button
+
+# Add output for status LED
+output:
+  - platform: ledc
+    pin: GPIO45
+    id: led_output
+
+
+light:
+  - platform: monochromatic
+    name: "Status LED"
+    output: led_output
+    id: custom_status_led
+    effects:
+      - pulse:
+          name: "Fast Blink"
+          transition_length: 0.1s
+          update_interval: 0.1s
+          min_brightness: 0%
+          max_brightness: 100%
+
+
 binary_sensor:
   - platform: gpio
     pin:
-      number: GPIO21
+      number: GPIO48
       mode: INPUT_PULLUP
     name: "Physical Print Button"
     on_press:
       then:
+        - light.turn_on:
+            id: custom_status_led
+            effect: "Fast Blink"
+        - delay: 5s  # Blink for 3 seconds
+        - light.turn_off: custom_status_led  # Turn off the LED after 3 seconds
         - button.press: conversation_starter_button
 
-# Add button to perform HTTP GET request
 button:
   - platform: template
     name: "Create Conversation Starter!"
